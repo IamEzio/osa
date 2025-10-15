@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Onboard Service - OSA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+
+    <h1 class="text-center mb-4">Onboard a New Service</h1>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('onboard_service') }}">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Service Name</label>
+                    <input type="text" class="form-control" name="service_name" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Project Key</label>
+                    <input type="text" class="form-control" name="project_key" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Repo Slug</label>
+                    <input type="text" class="form-control" name="repo_slug" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Shepherd Project</label>
+                    <input type="text" class="form-control" name="shepherd_project" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Shepherd Flock</label>
+                    <input type="text" class="form-control" name="shepherd_flock" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Monitored Artifacts (comma-separated)</label>
+                    <input type="text" class="form-control" name="monitored_artifacts" placeholder="e.g., api-core, worker-job, frontend-ui">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Bitbucket Token</label>
+                    <input type="password" class="form-control" name="bitbucket_token" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Shepherd Token</label>
+                    <input type="password" class="form-control" name="shepherd_token" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Onboard Service</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="text-center mt-4">
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">← Back to Analyzer</a>
+    </div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

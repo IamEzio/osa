@@ -25,6 +25,11 @@ source venv/bin/activate   # (Windows: venv\Scripts\activate)
 pip install -r requirements.txt
 ```
 
+## Setup DB locally
+```bash
+python -c "from services.db_service import init_db; init_db()"
+```
+
 ## Run the flask app
 ```bash
 flask run
