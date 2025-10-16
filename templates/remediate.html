@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Remediate Vulnerabilities - {{ artifact_name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container mt-5">
+
+    <h2>Remediate: {{ artifact_name }}</h2>
+    <div id="vulnTable" class="mt-4"></div>
+
+    <div class="text-end mt-4">
+        <button id="createPRBtn" class="btn btn-primary">Create PR</button>
+    </div>
+
+    <div id="statusSection" class="mt-4 d-none">
+        <div class="alert alert-info" id="statusText">Creating Pull Request...</div>
+    </div>
+
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(function() {
+    const artifact = "{{ artifact_name }}";
+
+    // Fetch vulnerabilities for this artifact
+    $.getJSON(`/api/vulnerabilities/${artifact}`, function(data) {
+        if (!data || !Object.keys(data).length) {
+            $('#vulnTable').html('<div class="alert alert-warning">No vulnerabilities found.</div>');
+            return;
+        }
+
+        let html = '<table class="table table-bordered"><thead><tr><th>Package</th><th>Severity</th><th>Advisory</th><th>Fix Version</th></tr></thead><tbody>';
+        Object.keys(data).forEach(pkg => {
+            data[pkg].forEach(v => {
+                html += `<tr>
+                    <td>${pkg}</td>
+                    <td><span class="badge bg-${getColor(v.Severity)}">${v.Severity}</span></td>
+                    <td><a href="${v.Advisory_Link}" target="_blank">${v.Advisory_Name}</a></td>
+                    <td>${v.Fix_Version || 'N/A'}</td>
+                </tr>`;
+            });
+        });
+        html += '</tbody></table>';
+        $('#vulnTable').html(html);
+    });
+
+    $('#createPRBtn').click(function() {
+        $('#statusSection').removeClass('d-none');
+        $('#statusText').text('🚀 Creating Pull Request...');
+
+        $.post(`/api/create_pr/${artifact}`, {}, function(resp) {
+            if (resp.status === 'in_progress') {
+                pollBuildStatus(artifact);
+            } else {
+                $('#statusText').text('❌ Failed to create PR.');
+            }
+        });
+    });
+
+    function pollBuildStatus(artifact) {
+        const interval = setInterval(() => {
+            $.getJSON(`/api/build_status/${artifact}`, function(resp) {
+                if (resp.status === 'in_progress') {
+                    $('#statusText').text(`⏳ Build in progress... (${resp.message || ''})`);
+                } else if (resp.status === 'success') {
+                    $('#statusText').removeClass('alert-info').addClass('alert-success').text('✅ PR created and build successful!');
+                    clearInterval(interval);
+                } else if (resp.status === 'failed') {
+                    $('#statusText').removeClass('alert-info').addClass('alert-danger').text('❌ Build failed. Check Bitbucket.');
+                    clearInterval(interval);
+                }
+            });
+        }, 10000); // poll every 10s
+    }
+
+    function getColor(sev) {
+        if (!sev) return 'secondary';
+        const s = sev.toLowerCase();
+        if (s.includes('critical')) return 'danger';
+        if (s.includes('high')) return 'warning';
+        if (s.includes('medium')) return 'info';
+        return 'secondary';
+    }
+});
+</script>
+</body>
+</html>
