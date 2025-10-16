@@ -30,6 +30,11 @@ pip install -r requirements.txt
 python -c "from services.db_service import init_db; init_db()"
 ```
 
+## Setup ENV
+```bash
+BITBUCKET_AUTH_SIMPLE={your bitbucket token}
+```
+
 ## Run the flask app
 ```bash
 flask run
