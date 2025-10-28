@@ -24,15 +24,16 @@ source venv/bin/activate   # (Windows: venv\Scripts\activate)
 ```bash
 pip install -r requirements.txt
 ```
-
+<!-- 
 ## Setup DB locally
 ```bash
 python -c "from services.db_service import init_db; init_db()"
-```
+``` -->
 
 ## Setup ENV
 ```bash
-BITBUCKET_AUTH_SIMPLE={your bitbucket token}
+BITBUCKET_AUTH_SIMPLE=<guid>:<your bitbucket token>
+BASE_DIR_PATH="<output of pwd command from root>" (Example: "/Users/ansmaury/Desktop/osa/")
 ```
 
 ## Run the flask app

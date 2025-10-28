@@ -13,23 +13,10 @@ def analyze_slaps_report(data):
 
     findings = data.get("scanReport", {}).get("findings", [])
 
-    structured_data = defaultdict(lambda: defaultdict(list))
+    structured_data = defaultdict(lambda: list)
+    meta = findings[0].get("metadata", {})
+    artifact = meta.get("Artifact_Name", "Unknown Artifact")
 
-    for finding in findings:
-        meta = finding.get("metadata", {})
-        artifact = meta.get("Artifact_Name", "Unknown Artifact")
-        package = meta.get("Package_Name", "Unknown Package")
+    structured_data[artifact] = findings
 
-        vuln = {
-            "Advisory_Name": meta.get("Advisory_Name", "N/A"),
-            "Severity": meta.get("Severity", "Unknown"),
-            "Package_Version": meta.get("Package_Version", "N/A"),
-            "Fix_Version": meta.get("CVE_Fix_Version", "N/A"),
-            "Advisory_Link": meta.get("Advisory_Link", "#"),
-            "Description": finding.get("details", "").strip().split("\n")[0:5],
-        }
-
-        structured_data[artifact][package].append(vuln)
-
-    # print(f"[SLAPS Analyzer] Parsed {len(findings)} findings from report.")
     return structured_data

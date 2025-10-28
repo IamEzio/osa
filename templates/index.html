@@ -5,37 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSA</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .center-btns {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            margin-top: 5rem;
+        }
+        .big-btn {
+            width: 320px;
+            height: 160px;
+            font-size: 2rem;
+            border-radius: 2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: box-shadow 0.2s;
+        }
+        .big-btn:hover, .big-btn:focus {
+            box-shadow: 0 4px 20px rgba(13, 110, 253, 0.2);
+            text-decoration: none;
+        }
+    </style>
 </head>
 <body class="bg-light">
-<div class="container mt-5">
-
-    <h1 class="text-center mb-4">Vulnerability Analyzer</h1>
-
-    <!-- Upload Form -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-body">
-            <form id="uploadForm" enctype="multipart/form-data">
-                <div class="mb-3">
-                    <label for="report" class="form-label fw-bold">Upload SLAPS Report (JSON)</label>
-                    <input class="form-control" type="file" id="report" name="report" accept=".json" required>
-                </div>
-                <button type="submit" class="btn btn-primary">Analyze Report</button>
-            </form>
-        </div>
+<div class="container">
+    <h1 class="text-center my-5">Oracle Security Assistant</h1>
+    <div class="center-btns">
+        <a href="{{ url_for('analyze_slaps_form') }}" class="btn btn-primary big-btn">
+            🛡️ Vulnerability Analyzer
+        </a>
+        <a href="{{ url_for('upgrade_boms') }}" class="btn btn-success big-btn">
+            ⬆️ Upgrade BOMs
+        </a>
     </div>
-
-    <!-- Results Section -->
-    <div id="resultsSection" class="d-none">
-        <h3 class="mb-3">Analysis Results</h3>
-        <div id="results"></div>
-    </div>
-
 </div>
-
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
-<script src="{{ url_for('static', filename='js/slaps_analyzer.js') }}"></script>
-
 </body>
 </html>

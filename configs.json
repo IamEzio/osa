@@ -1,0 +1,116 @@
+{
+  "NAME": "Oracle Security Assistant",
+  "VERSION": "1.1",
+  "BITBUCKET_BASE_URL": "https://bitbucket.oci.oraclecorp.com",
+  "BRANCH_PREFIX": "OSA-vulnerability-fix",
+  "BUILD_POLL_INTERVAL": "60",
+  "REPOS": {
+    "personalization-service": {
+      "PROJECT_KEY": "CSI",
+      "CLONE_URL": "ssh://git@bitbucket.oci.oraclecorp.com:7999/csi/personalization-service.git",
+      "SHEPHERD_FLOCK_URL": "https://devops.oci.oraclecorp.com/api/shepherd/v0/projects/personalization-service/flocks/api-flock-dev/",
+      "SHEPHERD_PAYLOAD": {
+        "artifacts": [
+          { "name": "force-redeploy-flag", "version": "false" },
+          { "name": "odo-system-updater", "version": "skip" },
+          { "name": "personalization-service-api", "version": "" },
+          { "name": "personalization-service-api-ol9", "version": "" },
+          { "name": "personalization-service-canary-exec-tests", "version": "skip" },
+          { "name": "personalization-service-worker", "version": "" },
+          { "name": "personalization-service-worker-ol9", "version": "" }
+        ],
+        "autoApprove": "false",
+        "phasesOverride": [
+          {
+            "name": "dev_OC1",
+            "isProd": "false",
+            "executionTargetOverrides": [
+              {
+                "name": "dev_phx",
+                "predecessors": []
+              }
+            ]
+          }
+        ],
+        "changeType": "Application",
+        "configId": "",
+        "description": "Roll-forward release for api-flock [OSA vulnerability fix]"
+      }
+    },
+    "dashboard-service" : {
+      "PROJECT_KEY": "CSI",
+      "CLONE_URL": "ssh://git@bitbucket.oci.oraclecorp.com:7999/csi/dashboard-service.git",
+      "SHEPHERD_FLOCK_URL": "https://devops.oci.oraclecorp.com/api/shepherd/v0/projects/personalization-service/flocks/dashboard-service-flock-dev/",
+      "SHEPHERD_PAYLOAD": {
+        "artifacts": [
+          { "name": "console-dashboard-service-canary", "version": "skip" },
+          { "name": "console-dashboard-service-canary-exec-tests", "version": "skip" },
+          { "name": "force-redeploy-flag", "version": "false" },
+          { "name": "odo-system-updater", "version": "skip" },
+          { "name": "dashboard-service-api", "version": "" },
+          { "name": "dashboard-service-api-ol9", "version": "" },
+          { "name": "dashboard-service-worker", "version": "" },
+          { "name": "dashboard-service-worker-ol9", "version": "" }
+        ],
+        "autoApprove": "false",
+        "phasesOverride": [
+          {
+            "name": "dev_OC1",
+            "isProd": "false",
+            "executionTargetOverrides": [
+              {
+                "name": "r2",
+                "predecessors": []
+              }
+            ]
+          }
+        ],
+        "changeType": "Application",
+        "configId": "",
+        "description": "Roll-forward release for api-flock [OSA vulnerability fix]"
+      }
+    },
+    "customer-feedback-service" : {
+      "PROJECT_KEY": "CFS",
+      "CLONE_URL": "ssh://git@bitbucket.oci.oraclecorp.com:7999/cfs/customer-feedback-service.git",
+      "SHEPHERD_FLOCK_URL": "https://devops.oci.oraclecorp.com/api/shepherd/v0/projects/cfs-service/flocks/cfs-service-flock-dev",
+      "SHEPHERD_PAYLOAD": {
+        "artifacts": [
+          { "name": "customer-feedback-service-canary", "version": "skip" },
+          { "name": "cfs-selinux-host-configurator", "version": "skip" },
+          { "name": "odo-system-updater", "version": "skip" },
+          { "name": "customer-feedback-service-api", "version": "" },
+          { "name": "customer-feedback-service-api-ol9", "version": "" }
+        ],
+        "autoApprove": "false",
+        "phasesOverride": [
+          {
+            "name": "dev_region_OC1",
+            "isProd": "false",
+            "executionTargetOverrides": [
+              {
+                "name": "r2",
+                "predecessors": []
+              }
+            ]
+          }
+        ],
+        "changeType": "Application",
+        "configId": "",
+        "description": "Roll-forward release for api-flock [OSA vulnerability fix]"
+      }
+    }
+  },
+  "ARTIFACT_MAP": {
+    "personalization-service-api": "personalization-service",
+    "personalization-service-api-ol9": "personalization-service",
+    "personalization-service-worker": "personalization-service",
+    "personalization-service-worker-ol9": "personalization-service",
+    "dashboard-service-api": "dashboard-service",
+    "dashboard-service-api-ol9": "dashboard-service",
+    "dashboard-service-worker": "dashboard-service",
+    "dashboard-service-worker-ol9": "dashboard-service",
+    "customer-feedback-service-api": "customer-feedback-service",
+    "customer-feedback-service-api-ol9": "customer-feedback-service"
+  }
+}

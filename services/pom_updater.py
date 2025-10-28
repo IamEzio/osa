@@ -9,11 +9,11 @@ import re
 from packaging import version
 
 
-BASE_DIR_PATH = "/Users/ansmaury/Desktop/hackathon26/osa/"
-PARENT_MODULE = "/Users/ansmaury/Desktop/hackathon26/osa/personalization-service"
-VULNERABILITY_JSON_PATH = "/Users/ansmaury/Desktop/hackathon26/osa/uploads/vulnerability_input.json"
-DROPWIZARD_BOM_FOLDER_PATH = "/Users/ansmaury/Desktop/hackathon26/osa/dropwizard_boms"
-OCI_BOM_FOLDER_PATH = "/Users/ansmaury/Desktop/hackathon26/osa/oci_boms"
+BASE_DIR_PATH = os.environ.get("BASE_DIR_PATH")
+VULNERABILITY_JSON_PATH = BASE_DIR_PATH + "uploads/vulnerability_input.json"
+DROPWIZARD_BOM_FOLDER_PATH = BASE_DIR_PATH + "dropwizard_boms"
+OCI_BOM_FOLDER_PATH = BASE_DIR_PATH + "oci_boms"
+
 variable_pattern = r'^\$\{([^{}]*)\}$'
 version_pattern = r'^\d+(?:\.\d+)+$'
 
@@ -127,7 +127,6 @@ def update_build_plugin_artifact(pomParser:PomParser, artifact_item, vuln, modul
         return False
 
 def check_and_update_bom_version(pomParser:PomParser, dependency, vuln, module):
-    print('Hello! Updating BOM!')
     parent_pom_modules = find_parent_poms(module, BASE_DIR_PATH)
     if len(parent_pom_modules) == 0:
         print("No parent modules found with pom files above module ", module)
@@ -217,7 +216,6 @@ def update_bom_version(pomParser:PomParser, bom_dependency, vuln, module):
                     if version.parse(vuln_bom_version) >= version.parse(vuln['CVE_Fix_Version']):
                         drop_vuln = bom_dependency.copy()
                         drop_vuln['CVE_Fix_Version'] = drop_wizard_version
-                        print('hrllo2!')
                         return update_dependency(pomParser, bom_dependency, drop_vuln, module)                
                     
             bom_index = bom_index - 1      
@@ -261,14 +259,17 @@ def update_bom_version(pomParser:PomParser, bom_dependency, vuln, module):
     return False
 
 
-def remediate_vulnerabilities():
-    vulnerability_data = load_vulnerabilities(VULNERABILITY_JSON_PATH)
-
+def remediate_vulnerabilities(
+    artifact,
+    vulnerability_data = {},
+    finding_indexes = [],
+):
     if vulnerability_data is None or len(vulnerability_data) == 0:
-        print("No vulnerability found in input file")
+        print("No vulnerability found in input")
         return
 
-    for vuln in vulnerability_data:
+    for idx in finding_indexes:
+        vuln = vulnerability_data[idx]
         if 'metadata' in vuln:
             vuln = vuln ['metadata']
         else:
@@ -303,11 +304,53 @@ def remediate_vulnerabilities():
 
         print('Done')
 
+def upgrade_all_boms_to_latest(repo_name):
+    """Upgrade both dropwizard-service-bom and oci-internal-bom dependencies to the latest versions."""
 
+    pom_file_path = Path(BASE_DIR_PATH + "/" + repo_name).resolve()
+    
+    if not (pom_file_path / "pom.xml").is_file():
+        return
+    pomParser = PomParser(pom_file_path / "pom.xml")
+    bomManager = BOMManager(DROPWIZARD_BOM_FOLDER_PATH, OCI_BOM_FOLDER_PATH)
+    updated = False
 
+    for bom_artifact, latest_version in [
+        ("dropwizard-service-bom", bomManager.dropwizard_bom_versions[-1]),
+        ("oci-internal-bom", bomManager.oci_bom_versions[-1])
+    ]:
+        dep = pomParser.find_dependency(bom_artifact)
+        if dep is None:
+            print(f"[INFO] BOM {bom_artifact} not found in {pom_file_path}, skipping.")
+            continue
+        current_version = dep['version']
 
-def main():
-    remediate_vulnerabilities()
+        if not current_version:
+            print(f"[WARN] BOM {bom_artifact} has no version specified! Skipping.")
+            continue
 
-if __name__ == "__main__":
-    main()
+        # Handle <version>${property}</version>
+        is_property = re.fullmatch(variable_pattern, current_version)
+        is_version = re.fullmatch(version_pattern, current_version)
+
+        if is_version:
+            if current_version != latest_version:
+                print(f"Updating {bom_artifact} version: {current_version} -> {latest_version}")
+                if pomParser.update_dependency_version(dep['groupId'], dep['artifactId'], latest_version):
+                    updated = True
+        elif is_property:
+            prop_name = is_property.group(1)
+            props = pomParser.find_properties()
+            old_prop_version = props.get(prop_name)
+            if old_prop_version and old_prop_version != latest_version:
+                print(f"Updating property {prop_name} for {bom_artifact}: {old_prop_version} -> {latest_version}")
+                if pomParser.update_property(prop_name, latest_version):
+                    updated = True
+        else:
+            print(f"[WARN] Unrecognized BOM version format for {bom_artifact}: {current_version}")
+
+    if updated:
+        pomParser.save()
+        print(f"[INFO] BOMs updated to latest in {pom_file_path}")
+    else:
+        print(f"[INFO] No BOM updates performed in {pom_file_path}")

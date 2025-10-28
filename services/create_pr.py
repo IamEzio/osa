@@ -10,7 +10,8 @@ import sys
 import tempfile
 import time
 from typing import Dict, Optional, Tuple
-from services.pom_updater import remediate_vulnerabilities
+from services.pom_updater import remediate_vulnerabilities, upgrade_all_boms_to_latest
+from services.release_automation import create_release
 
 try:
     import requests
@@ -18,10 +19,10 @@ except Exception:
     print("Missing dependency 'requests'. Install with: pip install requests", file=sys.stderr)
     sys.exit(2)
 
-def run(cmd: list[str], cwd: Optional[str] = None, capture_output: bool = False) -> subprocess.CompletedProcess:
-    """Run command and raise on non-zero exit (mimics set -e)."""
+def run(cmd: list[str], cwd: Optional[str] = None, capture_output: bool = False):
     print("⤵️  Running:", " ".join(cmd))
     return subprocess.run(cmd, cwd=cwd, check=True, capture_output=capture_output, text=True)
+
 
 def parse_auth(auth_header: Optional[str], auth_simple: Optional[str]) -> Tuple[Dict[str, str], Optional[requests.auth.AuthBase]]:
     headers: Dict[str, str] = {}
@@ -41,12 +42,13 @@ def parse_auth(auth_header: Optional[str], auth_simple: Optional[str]) -> Tuple[
             headers["Authorization"] = auth_simple
     return headers, auth
 
+
 def safe_rmdir(path: str):
     if os.path.isdir(path):
         print(f"🧽 Deleting directory: {path}")
         shutil.rmtree(path)
 
-def find_tags_for_commit(baseurl, project, repo, commit_id, auth=None, verify_ssl=True, page_size=25, verbose=False):
+def find_tags_for_commit(baseurl, project, repo, commit_id, auth=None, verify_ssl=True, page_size=25, verbose=True):
     """
     Iterate through tag pages and return a list of tag objects that point to commit_id.
     """
@@ -80,6 +82,7 @@ def find_tags_for_commit(baseurl, project, repo, commit_id, auth=None, verify_ss
 
         try:
             data = resp.json()
+            print(f"\nData fetching TAGS: {data}")
         except ValueError:
             print("Failed to decode JSON response from Bitbucket.", file=sys.stderr)
             return matches
@@ -145,198 +148,166 @@ def find_tags_for_commit(baseurl, project, repo, commit_id, auth=None, verify_ss
 
     return None
 
-def create_PR(
-    bitbucket_base_url: str = "https://bitbucket.oci.oraclecorp.com",
-    project_key: str = "CSI",
-    repo_name: str = "personalization-service",
-    clone_url: str = "ssh://git@bitbucket.oci.oraclecorp.com:7999/csi/personalization-service.git",
-    branch_prefix: str = "test-osa-vulnerability-fix",
-    poll_interval: int = 600,
-    auth_header: Optional[str] = None,
-    auth: Optional[str] = os.environ.get("BITBUCKET_AUTH_SIMPLE"),
-    no_cleanup: bool = False,
-    workdir: str = ".",
-):
-    headers, requests_auth = parse_auth(auth_header, auth)
+# -------------------------------------------------
+#  PHASE 1: Create PR and return PR details
+# -------------------------------------------------
+def create_bitbucket_pr(
+    artifact = None,
+    vuln_data = {},
+    finding_indexes = [],
+    configs = {},
+    repo_name = ""
+) -> dict:
+    try:
+        bitbucket_base_url = configs["BITBUCKET_BASE_URL"]
+        branch_prefix = configs['BRANCH_PREFIX']
+        auth_simple = os.environ.get('BITBUCKET_AUTH_SIMPLE')
+        if(repo_name == ""):
+            repo_name = configs['ARTIFACT_MAP'][artifact]
+        repo_config = configs['REPOS'][repo_name]
+        project_key = repo_config["PROJECT_KEY"]
+        clone_url = repo_config['CLONE_URL']
+    except Exception as e:
+        print("\n[Error]: Config values are missing in config.json")
+        print(f"Exception: {type(e).__name__}: {e}\n")
+        return
+    
+    workdir = "."
+    headers, requests_auth = parse_auth(None, auth_simple)
     branch_name = f"{branch_prefix}-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M')}"
     repo_dir = os.path.join(workdir, repo_name)
-    safe_rmdir(repo_dir)
-    try:
-        print("📥 Cloning repository...")
-        run(["git", "clone", clone_url], cwd=workdir)
-    except subprocess.CalledProcessError as e:
-        print("❌ Git clone failed:", e, file=sys.stderr)
-        sys.exit(1)
-    try:
-        print("cd", repo_dir)
-        print(f"🌿 Creating new branch: {branch_name}")
-        run(["git", "checkout", "-b", branch_name], cwd=repo_dir)
-    except subprocess.CalledProcessError as e:
-        print("❌ Git checkout/create branch failed:", e, file=sys.stderr)
-        sys.exit(1)
 
-    remediate_vulnerabilities()
+    print("Starting PR creation process")
+
+    safe_rmdir(repo_dir)
+    run(["git", "clone", clone_url], cwd=workdir)
+    run(["git", "checkout", "-b", branch_name], cwd=repo_dir)
+
+    if artifact is None:
+        upgrade_all_boms_to_latest(repo_name=repo_name)
+        description_lines = [
+            "Automated PR created by Oracle Security Assistant",
+            "",
+            "Updates dropwizard-service-bom and oci-internal-bom to their latest version"
+        ]
+
+        title = "Automated OSA upgarde for dropwizard-service-bom and oci-internal-bom"
+    else:
+        remediate_vulnerabilities(artifact=artifact, vulnerability_data=vuln_data[artifact], finding_indexes=finding_indexes)
+        advisory_names = []
+        description_lines = [
+            "Automated PR created by Oracle Security Assistant",
+            ""
+        ]
+
+        for package_name, vulns in vuln_data.items():
+            for vuln in vulns:
+                advisory_name = vuln.get("Advisory_Name", "N/A")
+                advisory_names.append(advisory_name)
+                package_version = vuln.get("Package_Version", "N/A")
+                advisory_link = vuln.get("Advisory_Link", "#")
+                description_lines.append(
+                    f"**Advisory:** {advisory_name}\n"
+                    f"**Package:** {package_name}\n"
+                    f"**Package Version:** {package_version}\n"
+                    f"**Advisory Link:** {advisory_link}\n"
+            )
+
+        title = "Automated OSA remediation for " + ", ".join(advisory_names)
+
+    run(["git", "add", "."], cwd=repo_dir)
     try:
-        run(["git", "add", "."], cwd=repo_dir)
-    except Exception as e:
-        print("❌ Failed to write or add test file:", e, file=sys.stderr)
-        sys.exit(1)
-    try:
-        run(["git", "commit", "-m", f"Test Automated commit for {branch_name}"], cwd=repo_dir)
-    except subprocess.CalledProcessError as e:
-        out = e.stdout or ""
-        err = e.stderr or ""
-        if "nothing to commit" in out.lower() or "nothing to commit" in err.lower():
-            print("⚠️ Nothing to commit (file may be unchanged). Proceeding.")
-        else:
-            print("❌ Git commit failed:", e, file=sys.stderr)
-            sys.exit(1)
-    try:
-        run(["git", "push", "origin", branch_name], cwd=repo_dir)
-    except subprocess.CalledProcessError as e:
-        print("❌ Git push failed:", e, file=sys.stderr)
-        sys.exit(1)
-    print("🚀 Creating Pull Request from", branch_name, "to master...")
+        run(["git", "commit", "-m", f"Automated OSA remediation for {branch_name}"], cwd=repo_dir)
+    except subprocess.CalledProcessError:
+        print("⚠️ Nothing to commit — proceeding anyway.")
+        return {
+            "branch_name": None,
+            "pr_link": None,
+            "latest_commit": None
+        }
+
+    run(["git", "push", "origin", branch_name], cwd=repo_dir)
+
     pr_payload = {
-        "title": f"Test Automated PR: {branch_name}",
-        "description": "This test PR was created automatically by build monitor script.",
-        "state": "OPEN",
-        "open": True,
-        "closed": False,
+        "title": title,
+        "description": "\n".join(description_lines),
         "fromRef": {
             "id": f"refs/heads/{branch_name}",
-            "repository": {
-                "slug": repo_name,
-                "project": {"key": project_key},
-            },
+            "repository": {"slug": repo_name, "project": {"key": project_key}}
         },
         "toRef": {
             "id": "refs/heads/master",
-            "repository": {
-                "slug": repo_name,
-                "project": {"key": project_key},
-            },
+            "repository": {"slug": repo_name, "project": {"key": project_key}}
         },
-        "locked": False,
     }
+
     pr_url = f"{bitbucket_base_url}/rest/api/1.0/projects/{project_key}/repos/{repo_name}/pull-requests"
-    try:
-        resp = requests.post(pr_url, headers=headers, auth=requests_auth, json=pr_payload, timeout=30, verify=True)
-    except Exception as e:
-        print("❌ Failed to create pull request (network error):", e, file=sys.stderr)
-        if not no_cleanup:
-            safe_rmdir(repo_dir)
-        sys.exit(1)
+    resp = requests.post(pr_url, headers=headers, auth=requests_auth, json=pr_payload, timeout=30, verify=True)
     if not resp.ok:
-        print("⚠️ Failed to create Pull Request. Status:", resp.status_code)
-        try:
-            print("Response:", resp.text)
-        except Exception:
-            pass
-    else:
-        try:
-            pr_json = resp.json()
-            pr_link = ""
-            if isinstance(pr_json.get("links"), dict):
-                self_links = pr_json["links"].get("self", [])
-                if self_links:
-                    pr_link = self_links[0].get("href", "")
-            if pr_link:
-                print("✅ Pull Request created successfully:", pr_link)
-            else:
-                print("✅ Pull Request created, but could not extract link from response.")
-        except Exception:
-            print("✅ Pull Request created (response not JSON or missing expected fields).")
-    branches_url = (
-        f"{bitbucket_base_url}/rest/api/1.0/projects/{project_key}/repos/{repo_name}/branches"
-        f"?filterText={branch_name}"
-    )
+        print("⚠️ Failed to create PR:", resp.text)
+        raise RuntimeError("Failed to create PR")
+
+    pr_json = resp.json()
+    pr_link = pr_json.get("links", {}).get("self", [{}])[0].get("href", "")
+
+    # Get commit ID
+    branches_url = f"{bitbucket_base_url}/rest/api/1.0/projects/{project_key}/repos/{repo_name}/branches?filterText={branch_name}"
+    resp = requests.get(branches_url, headers=headers, auth=requests_auth, timeout=30)
+    latest_commit = resp.json().get("values", [{}])[0].get("latestCommit")
+
+    # Cleanup
+    safe_rmdir(repo_dir)
+
+    return {
+        "branch_name": branch_name,
+        "pr_link": pr_link,
+        "latest_commit": latest_commit
+    }
+
+
+# -------------------------------------------------
+#  PHASE 2: Monitor build & trigger release
+# -------------------------------------------------
+def monitor_build_and_release(
+    artifact = None,
+    commit_id: str = "",
+    configs = {},
+    repo_name = ""
+):
     try:
-        resp = requests.get(branches_url, headers=headers, auth=requests_auth, timeout=30, verify=True)
-        resp.raise_for_status()
-        obj = resp.json()
-        latest_commit = None
-        values = obj.get("values", [])
-        if values:
-            latest_commit = values[0].get("latestCommit")
-        if not latest_commit:
-            print(f"❌ Failed to retrieve latest commit ID for branch {branch_name}")
-            if not no_cleanup:
-                safe_rmdir(repo_dir)
-            sys.exit(1)
-        print("✅ Latest commit:", latest_commit)
-    except Exception as e:
-        print("❌ Error fetching branch info:", e, file=sys.stderr)
-        if not no_cleanup:
-            safe_rmdir(repo_dir)
-        sys.exit(1)
-    build_status_url = f"{bitbucket_base_url}/rest/build-status/latest/commits/{latest_commit}"
-    print("⏳ Monitoring build status for commit...")
+        bitbucket_base_url = configs["BITBUCKET_BASE_URL"]
+        if(repo_name == ""):
+            repo_name = configs['ARTIFACT_MAP'][artifact]
+        repo_config = configs['REPOS'][repo_name]
+        project_key = repo_config["PROJECT_KEY"]
+        auth_simple = os.environ.get('BITBUCKET_AUTH_SIMPLE')
+        poll_interval = configs['BUILD_POLL_INTERVAL']
+    except (KeyError, IndexError) as e:
+        print("\n[Error]: Config values are missing in config.json")
+        print(f"Exception: {type(e).__name__}: {e}\n")
+        return
+    
+    headers, requests_auth = parse_auth(None, auth_simple)
+    build_status_url = f"{bitbucket_base_url}/rest/build-status/latest/commits/{commit_id}"
     terminal_states = {"SUCCESSFUL", "FAILED", "STOPPED"}
-    try:
-        while True:
-            try:
-                resp = requests.get(build_status_url, headers=headers, auth=requests_auth, timeout=30, verify=True)
-                resp.raise_for_status()
-                data = resp.json()
-                state = None
-                values = data.get("values", [])
-                if values:
-                    state = values[0].get("state")
-                if not state:
-                    print("⚠️ Build status not available yet. Response:", json.dumps(data)[:1000])
-                else:
-                    print(f"⏱️  Current status: {state} ({datetime.datetime.utcnow().isoformat()}Z)")
-                    if state in terminal_states:
-                        print("🏁 Build reached terminal state:", state)
-                        break
-                print(f"🕒 Waiting for {poll_interval//60} minutes before next check...")
-                time.sleep(poll_interval)
-            except requests.HTTPError as he:
-                print("⚠️ HTTP error while fetching build status:", he)
-                time.sleep(poll_interval)
-            except Exception as e:
-                print("⚠️ Error while fetching build status:", e)
-                time.sleep(poll_interval)
-    finally:
-        if state == "SUCCESSFUL":
-            artifact_id = find_tags_for_commit(bitbucket_base_url, project_key, repo_name, latest_commit, requests_auth)
-            print(f"artifact_id found is: {artifact_id}")
-        if not no_cleanup:
-            safe_rmdir(repo_dir)
-    print("✅ Done!")
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Clone repo, create branch, commit, push, create PR and monitor build status."
-    )
-    parser.add_argument("--bitbucket-base-url", default=os.environ.get("BITBUCKET_BASE_URL", "https://bitbucket.oci.oraclecorp.com"))
-    parser.add_argument("--project-key", default=os.environ.get("PROJECT_KEY", "CSI"))
-    parser.add_argument("--repo-name", default=os.environ.get("REPO_NAME", "personalization-service"))
-    parser.add_argument("--clone-url", default=os.environ.get("CLONE_URL", "ssh://git@bitbucket.oci.oraclecorp.com:7999/csi/personalization-service.git"))
-    parser.add_argument("--branch-prefix", default=os.environ.get("BRANCH_PREFIX", "test-osa-vulnerability-fix"))
-    parser.add_argument("--poll-interval", type=int, default=int(os.environ.get("POLL_INTERVAL", "600")))
-    parser.add_argument("--auth-header", help="Full header string, e.g. 'Cookie: ATLSSO=XXXX' or 'Authorization: Basic ...' (or set BITBUCKET_AUTH env var)", default=os.environ.get("BITBUCKET_AUTH"))
-    parser.add_argument("--auth", help="username:password (will use HTTP Basic auth).", default=os.environ.get("BITBUCKET_AUTH_SIMPLE"))
-    parser.add_argument("--no-cleanup", action="store_true", help="Do not delete the cloned repo directory at the end (for debugging).")
-    parser.add_argument("--workdir", help="Working directory to clone into. Default: current directory", default=".")
+    print(f"⏳ Monitoring build for commit {commit_id}...")
+    while True:
+        resp = requests.get(build_status_url, headers=headers, auth=requests_auth, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"\ndata from BUILD URL: {data}")
+        state = (data.get("values") or [{}])[0].get("state")
+        print(f"⏱️  Current status: {state}")
+        if state in terminal_states:
+            print("🏁 Build reached terminal state:", state)
+            break
+        time.sleep(int(poll_interval))
 
-    args = parser.parse_args()
-    create_PR(
-        bitbucket_base_url=args.bitbucket_base_url,
-        project_key=args.project_key,
-        repo_name=args.repo_name,
-        clone_url=args.clone_url,
-        branch_prefix=args.branch_prefix,
-        poll_interval=args.poll_interval,
-        auth_header=args.auth_header,
-        auth=args.auth,
-        no_cleanup=args.no_cleanup,
-        workdir=args.workdir
-    )
+    if state == "SUCCESSFUL":
+        artifact_id = find_tags_for_commit(bitbucket_base_url, project_key, repo_name, commit_id, requests_auth)
+        print(f"✅ Artifact found: {artifact_id}")
+        # create_release(artifact_id)
+        return {"status": "success", "artifact_id": artifact_id}
 
-def create_bitbucket_pr():
-    create_PR()
-
-if __name__ == "__main__":
-    main()
+    return {"status": "failed", "artifact_id": None}

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Upgrade BOMs</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .repo-table { max-width: 700px; margin: 2rem auto; }
+        .upgrade-btn { width: 160px; }
+        .status-section { padding: 1rem; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 1rem; }
+        .summary-table-container { max-width: 900px; margin: 2rem auto; }
+        .summary-table th, .summary-table td { vertical-align: middle !important; }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <h1 class="mb-4 text-center">Upgrade BOMs to Latest</h1>
+        <div class="repo-table mx-auto">
+            <table class="table table-bordered table-striped" id="repos-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Repository</th>
+                        <th style="width: 180px;">Action</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for repo in repo_names %}
+                    <tr data-repo="{{ repo }}">
+                        <td>{{ repo }}</td>
+                        <td>
+                            <button class="btn btn-primary upgrade-btn" data-repo="{{ repo }}">Upgrade BOMs</button>
+                        </td>
+                        <td>
+                            <div id="status-{{ repo }}">
+                                <span class="badge bg-secondary">Idle</span>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="3">
+                            <div id="status-table-{{ repo }}" class="status-section d-none"></div>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <div class="text-center my-3">
+                <button class="btn btn-success" id="upgrade-all-btn">Upgrade All REPOs</button>
+            </div>
+            <div id="upgrade-status" class="mt-3"></div>
+        </div>
+
+        <!-- Summary Table -->
+        <div id="summary-table-container" class="summary-table-container"></div>
+
+        <div class="text-center">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary mt-3">Back to Home</a>
+        </div>
+    </div>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+    function renderBuildStatus(status) {
+        if (!status) return '<span class="badge bg-secondary">Idle</span>';
+        let html = '';
+        // PR
+        if (status.pr_link)
+            html += `<b>Pull Request:</b> <a href="${status.pr_link}" target="_blank">${status.pr_link}</a><br>`;
+        // Status badges
+        html += `<b>Status:</b> <span class="badge ${status.status === 'failed' ? 'bg-danger' : status.status === 'OPEN' ? 'bg-primary' : status.status === 'creating_pr' ? 'bg-warning' : 'bg-success'}">${status.status || ''}</span> `;
+        // Build
+        if (status.build)
+            html += `<b>Build:</b> <span class="badge ${status.build === 'SUCCESSFUL' ? 'bg-success' : status.build === 'failed' ? 'bg-danger' : 'bg-info'}">${status.build}</span> `;
+        // Release
+        if (status.dev_release_name)
+            html += `<b>Dev Release:</b> ${status.dev_release_link && status.dev_release_link.startsWith('http') ?
+                `<a href="${status.dev_release_link}" target="_blank">${status.dev_release_name}</a>` :
+                `<span class="badge bg-info">${status.dev_release_name}</span>`}`;
+        // Message
+        if (status.message)
+            html += `<div class="mt-2"><small>${status.message}</small></div>`;
+        return html;
+    }
+
+    // ========== Summary Table Update =========
+    var repoList = JSON.parse('{{ repo_names | tojson }}');
+    var repoStatusMap = {};
+    function updateSummaryTable() {
+        let html = `<table class="table table-bordered summary-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Repository</th>
+                    <th>Pull Request</th>
+                    <th>Status</th>
+                    <th>Build Status</th>
+                    <th>Dev Release</th>
+                </tr>
+            </thead>
+            <tbody>`;
+        repoList.forEach(function(repo) {
+            let s = repoStatusMap[repo] || {};
+            html += `<tr>
+                <td>${repo}</td>
+                <td>${
+                    s.pr_link
+                        ? `<a href="${s.pr_link}" target="_blank">${s.pr_link}</a>`
+                        : "-"
+                }</td>
+                <td>${
+                    s.status
+                        ? `<span class="badge ${
+                            s.status === "failed"
+                                ? "bg-danger"
+                                : s.status === "OPEN"
+                                ? "bg-primary"
+                                : s.status === "creating_pr"
+                                ? "bg-warning text-dark"
+                                : "bg-success"
+                        }">${s.status.charAt(0).toUpperCase() + s.status.slice(1)}</span>`
+                        : "-"
+                }</td>
+                <td>${
+                    s.build
+                        ? `<span class="badge ${
+                            s.build === "SUCCESSFUL"
+                                ? "bg-success"
+                                : s.build === "failed"
+                                ? "bg-danger"
+                                : "bg-info"
+                        }">${s.build}</span>`
+                        : "-"
+                }</td>
+                <td>${
+                    s.dev_release_link && typeof s.dev_release_link === "string" && s.dev_release_link.startsWith("http")
+                        ? `<a href="${s.dev_release_link}" target="_blank">${s.dev_release_name || "Link"}</a>`
+                        : s.dev_release_name
+                        ? `<span class="badge bg-info">${s.dev_release_name}</span>`
+                        : "-"
+                }</td>
+            </tr>`;
+        });
+        html += `</tbody></table>`;
+        $('#summary-table-container').html(html);
+    }
+
+    // ========== POLLING Logic ==========
+    function pollStatus(repo) {
+        setInterval(function() {
+            $.getJSON(`/api/build_status_bom/${repo}`, function(status){
+                // Update status badge cell
+                let badge = status.status === 'OPEN' ? 'bg-primary' :
+                            status.status === 'failed' ? 'bg-danger' :
+                            status.status === 'SUCCESSFUL' ? 'bg-success' :
+                            status.status === 'creating_pr' ? 'bg-warning text-dark' :
+                            'bg-secondary';
+                let text = status.status ? status.status.charAt(0).toUpperCase() + status.status.slice(1) : 'Idle';
+                $(`#status-${repo}`).html(`<span class='badge ${badge}'>${text}</span>`);
+                // Show details table if there's a process running
+                if (status.status && status.status !== 'unknown' && status.status !== 'Idle') {
+                    $(`#status-table-${repo}`).removeClass('d-none').html(renderBuildStatus(status));
+                }
+                // Update summary view
+                repoStatusMap[repo] = status;
+                updateSummaryTable();
+            });
+        }, 30000); // poll every 30 seconds
+    }
+    repoList.forEach(function(repo) {
+        pollStatus(repo);
+    });
+
+    // Handle repo upgrade
+    $('.upgrade-btn').on('click', function(){
+        let repo = $(this).data('repo');
+        $('#upgrade-status').html('Upgrading ' + repo + '...');
+        $.ajax({
+            url: '/api/upgrade_boms',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({repo_name: repo}),
+            success: function(resp){
+                $('#upgrade-status').html('Upgrade started for ' + repo + '.');
+            },
+            error: function(xhr){
+                $('#upgrade-status').html('Error: ' + (xhr.responseJSON?.error || 'Upgrade failed'));
+            }
+        });
+    });
+    // Handle upgrade all
+    $('#upgrade-all-btn').on('click', function(){
+        $('#upgrade-status').html('Upgrading all repositories...');
+        $.ajax({
+            url: '/api/upgrade_boms',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({all: true}),
+            success: function(resp){
+                $('#upgrade-status').html('Upgrade started for all repositories.');
+            },
+            error: function(xhr){
+                $('#upgrade-status').html('Error: ' + (xhr.responseJSON?.error || 'Upgrade failed'));
+            }
+        });
+    });
+    </script>
+</body>
+</html>
